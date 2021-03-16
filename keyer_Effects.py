@@ -29,7 +29,8 @@ kernel = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (20,20))
 morph = cv2.morphologyEx(thresh, cv2.MORPH_CLOSE, kernel)
 
 # get contours
-contours = cv2.findContours(morph, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+#contours = cv2.findContours(morph, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+contours = cv2.findContours(thresh, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
 contours = contours[0] if len(contours) == 2 else contours[1]
 
 # draw white contours on black background as mask
@@ -61,7 +62,7 @@ kernel = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (6,6))
 circle = cv2.morphologyEx(circle, cv2.MORPH_ERODE, kernel)
 
 # combine inverted morph and circle
-mask2 = cv2.bitwise_and(255-morph, 255-morph, mask=circle)
+mask2 = cv2.bitwise_and(255-thresh, 255-thresh, mask=mask)
 
 # apply mask to image
 result = cv2.bitwise_and(img, img, mask=mask2)
@@ -69,12 +70,12 @@ result = cv2.bitwise_and(img, img, mask=mask2)
 result = cv2.blur(result, (5,5))
 
 # save results
-cv2.imwrite('/home/pi/stoneScanner/data/pic/pills_thresh2.jpg', thresh)
-cv2.imwrite('/home/pi/stoneScanner/data/pic/pills_morph2.jpg', morph)
-cv2.imwrite('/home/pi/stoneScanner/data/pic/pills_mask2.jpg', mask)
-cv2.imwrite('/home/pi/stoneScanner/data/pic/pills_hull2.jpg', hull)
-cv2.imwrite('/home/pi/stoneScanner/data/pic/pills_circle.jpg', circle)
-cv2.imwrite('/home/pi/stoneScanner/data/pic/pills_result2.png', result)
+cv2.imwrite('/home/pi/stoneScanner/data/pic/thresh2.jpg',thresh)
+cv2.imwrite('/home/pi/stoneScanner/data/pic/morph2.jpg',morph)
+cv2.imwrite('/home/pi/stoneScanner/data/pic/mask2.jpg',mask)
+cv2.imwrite('/home/pi/stoneScanner/data/pic/hull2.jpg',hull)
+cv2.imwrite('/home/pi/stoneScanner/data/pic/circle.jpg',circle)
+cv2.imwrite('/home/pi/stoneScanner/data/pic/result2.png',result)
 
 cv2.waitKey(0)
 cv2.destroyAllWindows()
