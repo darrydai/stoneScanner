@@ -6,7 +6,36 @@ from time import sleep
 
 dpSubprocess.load_background_image(image='background.jpg')
 
-sleep(2.0)
+def image_resize(image, width = None, height = None, inter = cv2.INTER_AREA):
+    # initialize the dimensions of the image to be resized and
+    # grab the image size
+    dim = None
+    (h, w) = image.shape[:2]
+
+    # if both the width and height are None, then return the
+    # original image
+    if width is None and height is None:
+        return image
+
+    # check to see if the width is None
+    if width is None:
+        # calculate the ratio of the height and construct the
+        # dimensions
+        r = height / float(h)
+        dim = (int(w * r), height)
+
+    # otherwise, the height is None
+    else:
+        # calculate the ratio of the width and construct the
+        # dimensions
+        r = width / float(w)
+        dim = (width, int(h * r))
+
+    # resize the image
+    resized = cv2.resize(image, dim, interpolation = cv2.INTER_CUBIC)
+
+    # return the resized image
+    return resized
 
 webcam = cv2.VideoCapture(0)
 webcam.set(cv2.CAP_PROP_FRAME_WIDTH, 1920)
@@ -21,20 +50,31 @@ del(webcam)
 # Read image
 img = cv2.imread('/home/pi/stoneScanner/data/pic/picture.png')
 
-x=302	
-y=47
+x=284	
+y=23
 
-w=1470
-h=900
+w=1322
+h=839
+
+# def otsu_canny(image, lowrate=0.5):
+#     if len(image.shape) > 2:
+#         image = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
+
+#     # Otsu's thresholding
+#     ret, _ = cv2.threshold(image, thresh=0, maxval=255, type=(cv2.THRESH_BINARY + cv2.THRESH_OTSU))
+#     edged = cv2.Canny(image, threshold1=(ret * lowrate), threshold2=ret)
+
+#     # return the edged image
+#     return edged
 
 crop_img = img[y:y+h,x:x+w]
-hh, ww = crop_img.shape[:2]
+#hh, ww = crop_img.shape[:2]
 cv2.imwrite('/home/pi/stoneScanner/data/pic/crop_img.png',crop_img)
 
 gray = cv2.cvtColor(crop_img, cv2.COLOR_BGR2GRAY)
-#blurred = cv2.GaussianBlur(gray, (11, 11), 0)
-blurred = cv2.GaussianBlur(gray, (5, 5), 0)
-edged = cv2.Canny(gray, 30, 150)
+blurred = cv2.GaussianBlur(gray, (11, 11), 0)
+edged = cv2.Canny(blurred, 20, 60)
+# edged = otsu_canny(crop_img)
 
 #(_, cnts, _) = cv2.findContours(edged.copy(), cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
 contours = cv2.findContours(edged.copy(), cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
@@ -59,17 +99,18 @@ cv2.imwrite('/home/pi/stoneScanner/data/pic/thresh.png',thresh)
 #cv2.imwrite('/home/pi/stoneScanner/data/pic/mask0.png',mask0)
 
 for (i, c) in enumerate(contours):
-
     (x, y, w, h) = cv2.boundingRect(c)
     stone = crop_img[y:y + h, x:x + w]
     cv2.imwrite('/home/pi/stoneScanner/data/pic/stone0.png',stone)
-    #mask = np.zeros(crop_img.shape[:2],dtype="uint8")
-    #cv2.imwrite('/home/pi/stoneScanner/data/pic/mask1.png',mask)
-    #((centerX, centerY), radius) = cv2.minEnclosingCircle(c)
-    #cv2.circle(mask, (int(centerX), int(centerY)), int(radius), 0, -1)
     mask = thresh[y:y + h, x:x + w]
     cv2.imwrite('/home/pi/stoneScanner/data/pic/mask2.png',mask)
-    result=cv2.bitwise_and(stone, stone, mask = mask)
+    stone = cv2.bitwise_and(stone, stone, mask = mask)
+    image = image_resize(stone, height = 1024)
+    tmp = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
+    _,alpha = cv2.threshold(tmp,0,255,cv2.THRESH_BINARY)
+    b, g, r = cv2.split(image)
+    rgba = [b,g,r, alpha]
+    result = cv2.merge(rgba,4)
     cv2.imwrite('/home/pi/stoneScanner/data/pic/stone.png',result)
 
 cv2.waitKey(0)
