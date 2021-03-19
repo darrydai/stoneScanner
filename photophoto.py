@@ -1,6 +1,8 @@
 import cv2
 import numpy as np
 import skimage.exposure
+from picamera import PiCamera
+from fractions import Fraction
 from dimensionplus import dpSubprocess
 from time import sleep
 
@@ -32,86 +34,88 @@ def image_resize(image, width = None, height = None, inter = cv2.INTER_AREA):
         dim = (width, int(h * r))
 
     # resize the image
-    resized = cv2.resize(image, dim, interpolation = cv2.INTER_CUBIC)
+    resized = cv2.resize(image, dim, interpolation = cv2.INTER_NEAREST)
 
     # return the resized image
     return resized
 
-webcam = cv2.VideoCapture(0)
-webcam.set(cv2.CAP_PROP_FRAME_WIDTH, 1920)
-webcam.set(cv2.CAP_PROP_FRAME_HEIGHT,1080)
-# 讀取影像
-return_value, image = webcam.read()
-# 儲存名為Picture.png的照片
-cv2.imwrite("/home/pi/stoneScanner/data/pic/picture.png", image)
-# 刪除webcam，避免影像佔用資源
-del(webcam)
+
+#set camera
+camera = PiCamera(resolution=(1920, 1080))
+camera.shutter_speed = 6000000
+camera.capture('/home/pi/stoneScanner/data/pic/original_pic.png')
 
 # Read image
-img = cv2.imread('/home/pi/stoneScanner/data/pic/picture.png')
+img = cv2.imread('/home/pi/stoneScanner/data/pic/original_pic.png')
 
+#crop image 
 x=284	
 y=23
-
 w=1322
 h=839
-
-# def otsu_canny(image, lowrate=0.5):
-#     if len(image.shape) > 2:
-#         image = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
-
-#     # Otsu's thresholding
-#     ret, _ = cv2.threshold(image, thresh=0, maxval=255, type=(cv2.THRESH_BINARY + cv2.THRESH_OTSU))
-#     edged = cv2.Canny(image, threshold1=(ret * lowrate), threshold2=ret)
-
-#     # return the edged image
-#     return edged
-
 crop_img = img[y:y+h,x:x+w]
+crop_img = image_resize(crop_img, height =1440)
 #hh, ww = crop_img.shape[:2]
 cv2.imwrite('/home/pi/stoneScanner/data/pic/crop_img.png',crop_img)
 
-gray = cv2.cvtColor(crop_img, cv2.COLOR_BGR2GRAY)
+#darkness of image
+a = np.double(crop_img)
+b = a - 60
+dark_img = np.uint8(b)
+cv2.imwrite('/home/pi/stoneScanner/data/pic/dark_img.png',dark_img)
+
+#find the stone contours
+gray = cv2.cvtColor(dark_img, cv2.COLOR_BGR2GRAY)
 blurred = cv2.GaussianBlur(gray, (11, 11), 0)
-edged = cv2.Canny(blurred, 20, 60)
-# edged = otsu_canny(crop_img)
-
-#(_, cnts, _) = cv2.findContours(edged.copy(), cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
-contours = cv2.findContours(edged.copy(), cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
-contours = contours[0] if len(contours) == 2 else contours[1]
-big_contour = max(contours, key=cv2.contourArea)
-
-#contour = np.zeros_like(gray)
+edged = cv2.Canny(blurred, 20, 100)
+(_, cnts, _) = cv2.findContours(edged.copy(), cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+#contours = cv2.findContours(edged.copy(), cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+#contours = contours[0] if len(contours) == 2 else contours[1]
+#big_contour = max(contours, key=cv2.contourArea)
+#big_contour = max(cnts, key=cv2.contourArea)
 stone = crop_img.copy()
-#cv2.drawContours(stone, cnts, -1, (0, 255, 0), 2)
-cv2.drawContours(stone, [big_contour], 0, 255, -1)
+#cv2.drawContours(stone,[big_contour], 0, 255, -1)
+cv2.drawContours(stone, cnts, -1, (0, 255, 0), 2)
 cv2.imwrite('/home/pi/stoneScanner/data/pic/Contours_img.png',stone)
 
-stone=cv2.cvtColor(stone, cv2.COLOR_BGR2HSV)
+# stone=cv2.cvtColor(stone, cv2.COLOR_BGR2HSV)
+# lower = np.array([100, 43, 46])
+# upper = np.array([124, 255, 255])
+# thresh = cv2.inRange(stone, lower, upper)
+# cv2.imwrite('/home/pi/stoneScanner/data/pic/thresh.png',thresh)
 
-lower = np.array([100, 43, 46])
-upper = np.array([124, 255, 255])
-thresh = cv2.inRange(stone, lower, upper)
-cv2.imwrite('/home/pi/stoneScanner/data/pic/thresh.png',thresh)
-
-#blur = cv2.GaussianBlur(contour, (5,5), sigmaX=0, sigmaY=0, borderType = cv2.BORDER_DEFAULT)
-#mask0 = skimage.exposure.rescale_intensity(blur, in_range=(127.5,255), out_range=(0,255))
-#cv2.imwrite('/home/pi/stoneScanner/data/pic/mask0.png',mask0)
-
-for (i, c) in enumerate(contours):
+#Take out the stone
+for (i, c) in enumerate(cnts):
     (x, y, w, h) = cv2.boundingRect(c)
     stone = crop_img[y:y + h, x:x + w]
-    cv2.imwrite('/home/pi/stoneScanner/data/pic/stone0.png',stone)
-    mask = thresh[y:y + h, x:x + w]
-    cv2.imwrite('/home/pi/stoneScanner/data/pic/mask2.png',mask)
+    #cv2.imwrite('/home/pi/stoneScanner/data/pic/stone0.png',stone)
+    # mask = thresh[y:y + h, x:x + w]
+    mask = np.zeros(gray.shape[:2],dtype="uint8")
+    cv2.drawContours(mask, [c], -1, 255, -1)
+
+    #ERODE mask
+    kernel = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (21,21))
+    mask = cv2.morphologyEx(mask, cv2.MORPH_ERODE, kernel)
+    cv2.imwrite('/home/pi/stoneScanner/data/pic/mask.png',mask)
+
+    mask = mask[y:y + h, x:x + w]
     stone = cv2.bitwise_and(stone, stone, mask = mask)
     image = image_resize(stone, height = 1024)
+
+    #transparent background
     tmp = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
     _,alpha = cv2.threshold(tmp,0,255,cv2.THRESH_BINARY)
     b, g, r = cv2.split(image)
     rgba = [b,g,r, alpha]
     result = cv2.merge(rgba,4)
+    
+    #for multi detection 
+    #a=str(i)
+    #save_location='/home/pi/stoneScanner/data/pic/stone'+a+'.png'
+    #cv2.imwrite(save_location,result)
+
     cv2.imwrite('/home/pi/stoneScanner/data/pic/stone.png',result)
+   
 
 cv2.waitKey(0)
 cv2.destroyAllWindows()
