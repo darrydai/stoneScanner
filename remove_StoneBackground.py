@@ -17,6 +17,8 @@ config.read('/home/pi/stoneScanner/stone_scanner.ini')
 original_img = config['captrue']['original_img']
 result_img = config['captrue']['captrue_result']
 
+stoneNum = int(config['stone']['stone_Num'])
+
 def image_resize(image, width = None, height = None, inter = cv2.INTER_AREA):
     # initialize the dimensions of the image to be resized and
     # grab the image size
@@ -53,7 +55,7 @@ def catchStone(workState):
     workState.task_done()
     # dpSubprocess.load_background_image(image='background.jpg')
     #set camera
-    camera = PiCamera(resolution=(1920, 1080))
+    camera = PiCamera(resolution=(1920,1080))
     camera.shutter_speed = int(config['camera']['shutter_speed'])
     sleep(1)
     camera.capture(original_img)
@@ -71,18 +73,18 @@ def catchStone(workState):
     crop_img = img[y:y+h,x:x+w]
     crop_img = image_resize(crop_img, height =1440)
     #hh, ww = crop_img.shape[:2]
-    cv2.imwrite('/home/pi/stoneScanner/data/pic/crop_img.png',crop_img)
+    cv2.imwrite('/home/pi/stoneScanner/data/pic/captrue/dbug/crop_img.png',crop_img)
 
     #darkness of image
     a = np.double(crop_img)
     b = a - 60
     dark_img = np.uint8(b)
-    cv2.imwrite('/home/pi/stoneScanner/data/pic/dark_img.png',dark_img)
+    cv2.imwrite('/home/pi/stoneScanner/data/pic/captrue/dbug/dark_img.png',dark_img)
 
     #find the stone contours
     gray = cv2.cvtColor(dark_img, cv2.COLOR_BGR2GRAY)
     blurred = cv2.GaussianBlur(gray, (11, 11), 0)
-    edged = cv2.Canny(blurred, 20, 190)
+    edged = cv2.Canny(blurred, 30, 150)
     (_, cnts, _) = cv2.findContours(edged.copy(), cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
     #contours = cv2.findContours(edged.copy(), cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
     #contours = contours[0] if len(contours) == 2 else contours[1]
@@ -106,7 +108,7 @@ def catchStone(workState):
         #ERODE mask
         kernel = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (21,21))
         mask = cv2.morphologyEx(mask, cv2.MORPH_ERODE, kernel)
-        cv2.imwrite('/home/pi/stoneScanner/data/pic/mask.png',mask)
+        cv2.imwrite('/home/pi/stoneScanner/data/pic/captrue/dbug/mask.png',mask)
 
         mask = mask[y:y + h, x:x + w]
         stone = cv2.bitwise_and(stone, stone, mask = mask)
@@ -124,9 +126,8 @@ def catchStone(workState):
         #save_location='/home/pi/stoneScanner/data/pic/stone'+a+'.png'
         #cv2.imwrite(save_location,result)
 
-        cv2.imwrite(result_img,result)
+        cv2.imwrite(result_img+str(stoneNum)+'.png',result)
     
-
     cv2.waitKey(0)
     cv2.destroyAllWindows()
     workState.put(2)

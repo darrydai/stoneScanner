@@ -1,14 +1,19 @@
 import sys
+import RPi.GPIO as GPIO
 import numpy as np
 import cv2
 import configparser
 import skimage.exposure
 import queue
 import threading,trace,queue
+import requests
 import keyboard
 from picamera import PiCamera
 from fractions import Fraction
+from pythonosc import udp_client
 from omxplayer.player import OMXPlayer
+from stoneMl import stoneMl
+from make_Stamp import make_Stamp
 from time import sleep
 from dimensionplus import dpSubprocess
 
@@ -16,12 +21,12 @@ from dimensionplus import dpSubprocess
 config = configparser.ConfigParser()
 config.read('/home/pi/stoneScanner/stone_scanner.ini')
 
-#File name
+# file name
+# captrue stone
 original_img = config['captrue']['original_img']
 result_img = config['captrue']['captrue_result']
 
-background = config['pic']['background']
-
+# video
 VIDEO_PATH = config['video']['VIDEO_PATH']
 VIDEO_FILE_IDLE = config['video']['VIDEO_FILE_IDLE']
 VIDEO_FILE_SCANNING = config['video']['VIDEO_FILE_SCANNING']
@@ -31,8 +36,24 @@ VIDEO_FILE_SCAN_ERR = config['video']['VIDEO_FILE_SCAN_ERR']
 VIDEO_FILE_PRT_CMP = config['video']['VIDEO_FILE_PRT_CMP']
 VIDEO_FILE_FULL = config['video']['VIDEO_FILE_FULL']
 
+# init osc
+host_ip = config['osc']['host_ip']
+host_port = int(config['osc']['host_port'])
+osc_sendMsg2Beach = udp_client.SimpleUDPClient(host_ip,host_port)
+
+# define GPIO Pin Number
+gpioPin = 5
+
+# Define GPIO Function
+GPIO.setmode(GPIO.BCM)
+GPIO.setup(gpioPin, GPIO.IN,pull_up_down=GPIO.PUD_DOWN)
+#GPIO.add_event_detect(gpioPin, GPIO.RISING, bouncetime = 200)
+
 #init video number
 video_Num = 1
+
+stoneNum = int(config['captrue']['stone_Num'])
+stampNum = int(config['stamp']['stamp_Num'])
 
 class thread_with_trace(threading.Thread):
   def __init__(self, *args, **keywords):
@@ -107,6 +128,7 @@ def catchStone(workState):
     workState.put(1)
     workState.task_done()
     camera.close()
+
     # Read image
     img = cv2.imread(original_img)
 
@@ -117,38 +139,40 @@ def catchStone(workState):
     h=839
     crop_img = img[y:y+h,x:x+w]
     crop_img = image_resize(crop_img, height =1440)
-    #hh, ww = crop_img.shape[:2]
-    cv2.imwrite('/home/pi/stoneScanner/data/pic/crop_img.png',crop_img)
+    cv2.imwrite('/home/pi/stoneScanner/data/pic/captrue/dbug/crop_img.png',crop_img)
+
+    # img to darknnes
+    # a = np.double(crop_img)
+    # b = a - 60
+    # dark_img = np.uint8(b)
 
     # get a blank canvas for drawing contour on and convert img to grayscale 
-    canvas = np.zeros(crop_img.shape[:2],dtype="uint8") 
+    canvas = np.zeros(crop_img.shape,dtype="uint8") 
     img2gray = cv2.cvtColor(crop_img,cv2.COLOR_BGR2GRAY) 
 
     # filter out small lines between counties 
-    kernel = np.ones((5,5),np.float32)/25 
-    img2gray = cv2.filter2D(img2gray,-1,kernel) 
-    cv2.imwrite("img2gray.png",img2gray)
+    kernel_4_2d = np.ones((5,5),np.float32)/25 
+    img2gray = cv2.filter2D(img2gray,-1,kernel_4_2d) 
 
     # threshold the image and extract contours 
     # can change cv2.threshold function thresh and max value
-    ret,thresh = cv2.threshold(img2gray,250,255,cv2.THRESH_BINARY_INV) 
+    ret,thresh = cv2.threshold(img2gray,245.5,255,cv2.THRESH_BINARY_INV) 
     im2,contours,hierarchy = cv2.findContours(thresh, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_NONE) 
 
-    # another option
+    # another get Contours option
     # blurred = cv2.GaussianBlur(img2gray, (11, 11), 0)
-    # edged = cv2.Canny(blurred, 50, 100)
+    # edged = cv2.Canny(blurred, 20, 180)
     # (_, contours, _) = cv2.findContours(edged.copy(), cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
 
     # find the stone (biggest area) 
     cnt = contours[0] 
     max_area = cv2.contourArea(cnt) 
-
     for cont in contours: 
         if cv2.contourArea(cont) > max_area: 
             cnt = cont 
             max_area = cv2.contourArea(cont)
 
-    # define stone contour approx. and hull 
+    # define stone contour approx
     perimeter = cv2.arcLength(cnt,True) 
     epsilon = 0.00001*cv2.arcLength(cnt,True) 
     approx = cv2.approxPolyDP(cnt,epsilon,True) 
@@ -156,14 +180,22 @@ def catchStone(workState):
     cv2.drawContours(canvas, cnt, -1,(255,255,255),-1) 
     cv2.drawContours(canvas, [approx],-1,(255,255,255),-1) 
 
-    kernel  = np.ones((10,10), np.uint8)
-    erode = cv2.erode(canvas, kernel, iterations= 3)
+    # make mask
+    mask_Init = np.zeros(img2gray.shape[:2], dtype=np.uint8)
+    cv2.drawContours(mask_Init, [approx], -1, (255,255,255), -1)
 
+    # erode mask
+    kernel2Erode  = np.ones((10,10), np.uint8)
+    mask_Erode = cv2.erode(mask_Init, kernel2Erode, iterations= 5)
+
+    # cut the stone
     (x, y, w, h) = cv2.boundingRect(cnt)
     stone = crop_img[y:y + h, x:x + w]
-    mask = erode[y:y + h, x:x + w]
-    cv2.imwrite('/home/pi/stoneScanner/data/pic/mask.png',mask)
-    stone = cv2.bitwise_and(stone, stone, mask = mask)
+    mask_Erode = mask_Erode[y:y + h, x:x + w]
+
+    cv2.imwrite('/home/pi/stoneScanner/data/pic/captrue/dbug/mask.png',mask_Erode)
+
+    stone = cv2.bitwise_and(stone, stone, mask = mask_Erode)
     image = image_resize(stone, height = 1024)
 
     #transparent background
@@ -172,17 +204,28 @@ def catchStone(workState):
     b, g, r = cv2.split(image)
     rgba = [b,g,r, alpha]
     result = cv2.merge(rgba,4)
-    cv2.imwrite(result_img,result)    
+    cv2.imwrite(result_img+str(stoneNum)+'.png',result)    
 
     cv2.waitKey(0)
     cv2.destroyAllWindows()
     workState.put(2)
     workState.task_done()
 
+def writes_StoneNum(stoneNum,stampNum):
+  config['captrue']['stone_Num']=str(stoneNum)
+  config['stamp']['stamp_Num']=str(stampNum)
+  with open('/home/pi/stoneScanner/stone_scanner.ini', 'w') as configfile:
+      config.write(configfile)
+
 def playerExit(code,num):
     global video_Num
     video_Num =video_Num + 1
-    print('exit',code)
+    #print('exit',code)
+
+def upload_Stone(img_Path):
+    my_files = {'file': open(img_Path,'rb')}
+    values = {'folder':'Photos/incoming/'}
+    r = requests.post(config['captrue']['http_Add'],files = my_files,data=values)
 
 #load white background
 dpSubprocess.load_background_image(image = 'background.jpg')
@@ -193,7 +236,7 @@ sleep(3)
 player.play()
 
 while True:
-    if keyboard.is_pressed('a'):
+    if GPIO.input(gpioPin):
         player.quit()
         dpSubprocess.load_background_image(image = 'background.jpg')
         stone_CAP_State = queue.Queue()
@@ -211,6 +254,13 @@ while True:
                         stone_CAP_State.join()
                         stone_CAP.kill()
                         stone_CAP.join()
+                        
+                        #upload stone image to pc
+                        upload_Stone(result_img+str(stoneNum)+'.png')
+                        
+                        #stone ML
+                        # stone_id = stoneMl(stoneNum)
+
                         player = OMXPlayer(VIDEO_PATH+VIDEO_FILE_SCANNING_CMP)
                         player.exitEvent += lambda _, exit_code: playerExit(exit_code,video_Num)
                         sleep(3)
@@ -222,9 +272,11 @@ while True:
                         player.exitEvent += lambda _, exit_code: playerExit(exit_code,video_Num)
                         sleep(3)
                         player.play()
+                        osc_sendMsg2Beach.send_message("/scanner/left/img/upload",1)
                         while video_Num != 5:
                           # print("video4")
                           pass
+                        # make_Stamp(stoneNum,stampNum,stone_id)
                         player = OMXPlayer(VIDEO_PATH+VIDEO_FILE_PRT_CMP)
                         player.exitEvent += lambda _, exit_code: playerExit(exit_code,video_Num)
                         sleep(3)
@@ -232,7 +284,11 @@ while True:
                         while video_Num != 6:
                           # print("video5")
                           pass
-                        video_Num = 1  
+                        stone_id = 0
+                        video_Num = 1 
+                        stoneNum = stoneNum + 1 
+                        stampNum = stampNum + 1
+                        writes_StoneNum(stoneNum,stampNum,)
                         player = OMXPlayer(VIDEO_PATH+VIDEO_FILE_IDLE, args='--loop')
                         player.exitEvent += lambda _, exit_code: playerExit(exit_code,video_Num)
                         sleep(3)
