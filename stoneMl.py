@@ -44,6 +44,24 @@ def classify_image(interpreter, image, top_k=1):
   ordered = np.argpartition(-output, top_k)
   return [(i, output[i]) for i in ordered[:top_k]]
 
+def stone_Dic(label_id):
+  return {
+    'smooth': 1,
+    'wave': 2,
+    'ground': 3,
+    'sun': 4,
+    'rose': 6,
+    'snake': 7,
+    'mwaji': 8,
+    'land': 9,
+    'unknow': 10,
+    'moon': 11,
+    'snow': 12,
+    'mountain': 13,
+    'skinny': 14,
+    'empty': 15,
+    }.get(label_id,'error')
+
 
 def stoneMl(stoneNum):
   image = Image.open(stoneImg_path+'stone_'+str(stoneNum).zfill(4)+'.png').convert('RGB').resize((224,224),Image.ANTIALIAS)
@@ -53,9 +71,11 @@ def stoneMl(stoneNum):
   results = classify_image(interpreter, image)
   label_id, prob = results[0]
   if label_id <10 :
-    return (str(labels[label_id][2:]))
+    label_Num = (str(labels[label_id][2:]))
   else :
-    return (str(labels[label_id][3:]))
+    label_Num = (str(labels[label_id][3:]))
+  label_Num = stone_Dic(label_Num)
+  return label_Num
 
 
 # def main():
@@ -96,7 +116,7 @@ def stoneMl(stoneNum):
 #       camera.stop_preview()
 
 def main():
-  stoneID=stoneMl(240)
+  stoneID=stoneMl(66)
   print(stoneID)
 if __name__ == '__main__':
   main()
