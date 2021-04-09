@@ -11,29 +11,29 @@ config.read('/home/pi/stoneScanner/stone_scanner.ini')
 
 def make_Stamp(stoneNum,stampNum,stone_id):
     try:
-        if stone_id == 'smooth':
+        if stone_id == 1:
             bg_Path=config['stamp']['stamp_BG']+'/Text_1_01.png'
-        if stone_id == 'wave':
+        if stone_id == 2:
             bg_Path=config['stamp']['stamp_BG']+'/Text_2_01.png'
-        if stone_id == 'ground':
+        if stone_id == 3:
             bg_Path=config['stamp']['stamp_BG']+'/Text_3_01.png'
-        if stone_id == 'sun':
+        if stone_id == 4:
             bg_Path=config['stamp']['stamp_BG']+'/Text_4_01.png'
-        if stone_id == 'rose':
+        if stone_id == 6:
             bg_Path=config['stamp']['stamp_BG']+'/Text_6_01.png'
-        if stone_id == 'snake':
+        if stone_id == 7:
             bg_Path=config['stamp']['stamp_BG']+'/Text_7_01.png'
-        if stone_id == 'mwaji':
+        if stone_id == 8:
             bg_Path=config['stamp']['stamp_BG']+'/Text_8_01.png'
-        if stone_id == 'unknow':
+        if stone_id == 10:
             bg_Path=config['stamp']['stamp_BG']+'/Text_10_01.png'
-        if stone_id == 'moon':
+        if stone_id == 11:
             bg_Path=config['stamp']['stamp_BG']+'/Text_11_01.png'
-        if stone_id == 'snow':
+        if stone_id == 12:
             bg_Path=config['stamp']['stamp_BG']+'/Text_12_01.png'
-        if stone_id == 'mountain':
+        if stone_id == 13:
             bg_Path=config['stamp']['stamp_BG']+'/Text_13_01.png'
-        if stone_id == 'skinny':
+        if stone_id == 14:
             bg_Path=config['stamp']['stamp_BG']+'/Text_14_01.png'
         # if stone_id == 'mountain':
         #     bg_Path=config['stamp']['stamp_BG']+'/Text_13_01.png'
@@ -56,7 +56,7 @@ def make_Stamp(stoneNum,stampNum,stone_id):
         bg_Img=bg_Img.convert('RGBA')
 
         #load stone image
-        stoneImg=Image.open(stoneImg_path+'stone_'+str(stoneNum)+'.png')
+        stoneImg=Image.open(stoneImg_path+'stone_'+str(stoneNum).zfill(4)+'.png')
         stoneImg=stoneImg.convert('RGBA')
 
         #Enhance stone image sharpness
@@ -91,7 +91,7 @@ def make_Stamp(stoneNum,stampNum,stone_id):
 
 def main():
     try:
-        make_Stamp(0,0)
+        make_Stamp(5,0,1)
     except Exception as e:
         print("發生錯誤：",e)
 

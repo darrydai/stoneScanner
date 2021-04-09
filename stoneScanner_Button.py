@@ -6,8 +6,9 @@ import configparser
 import skimage.exposure
 import queue
 import threading,trace,queue
-import requests
 import keyboard
+import requests
+import logging
 from picamera import PiCamera
 from fractions import Fraction
 from pythonosc import udp_client
@@ -21,6 +22,9 @@ from dimensionplus import dpSubprocess
 config = configparser.ConfigParser()
 config.read('/home/pi/stoneScanner/stone_scanner.ini')
 
+# init log
+LOG_FORMAT = '%(asctime)s %(levelname)s: %(message)s'
+
 # file name
 # captrue stone
 original_img = config['captrue']['original_img']
@@ -31,10 +35,10 @@ VIDEO_PATH = config['video']['VIDEO_PATH']
 VIDEO_FILE_IDLE = config['video']['VIDEO_FILE_IDLE']
 VIDEO_FILE_SCANNING = config['video']['VIDEO_FILE_SCANNING']
 VIDEO_FILE_SCANNING_CMP = config['video']['VIDEO_FILE_SCANNING_CMP']
-VIDEO_FILE_SEE_STORY = config['video']['VIDEO_FILE_SEE_STORY']
+# VIDEO_FILE_SEE_STORY = config['video']['VIDEO_FILE_SEE_STORY']
 VIDEO_FILE_SCAN_ERR = config['video']['VIDEO_FILE_SCAN_ERR']
-VIDEO_FILE_PRT_CMP = config['video']['VIDEO_FILE_PRT_CMP']
-VIDEO_FILE_FULL = config['video']['VIDEO_FILE_FULL']
+# VIDEO_FILE_PRT_CMP = config['video']['VIDEO_FILE_PRT_CMP']
+# VIDEO_FILE_FULL = config['video']['VIDEO_FILE_FULL']
 
 # init osc
 host_ip = config['osc']['host_ip']
@@ -52,8 +56,11 @@ GPIO.setup(gpioPin, GPIO.IN,pull_up_down=GPIO.PUD_DOWN)
 #init video number
 video_Num = 1
 
+stone_id ='none'
 stoneNum = int(config['captrue']['stone_Num'])
 stampNum = int(config['stamp']['stamp_Num'])
+
+error_Count=0
 
 class thread_with_trace(threading.Thread):
   def __init__(self, *args, **keywords):
@@ -186,7 +193,7 @@ def catchStone(workState):
 
     # erode mask
     kernel2Erode  = np.ones((10,10), np.uint8)
-    mask_Erode = cv2.erode(mask_Init, kernel2Erode, iterations= 5)
+    mask_Erode = cv2.erode(mask_Init, kernel2Erode, iterations= 3)
 
     # cut the stone
     (x, y, w, h) = cv2.boundingRect(cnt)
@@ -204,7 +211,7 @@ def catchStone(workState):
     b, g, r = cv2.split(image)
     rgba = [b,g,r, alpha]
     result = cv2.merge(rgba,4)
-    cv2.imwrite(result_img+str(stoneNum)+'.png',result)    
+    cv2.imwrite(result_img+str(stoneNum).zfill(4)+'.png',result)    
 
     cv2.waitKey(0)
     cv2.destroyAllWindows()
@@ -219,8 +226,9 @@ def writes_StoneNum(stoneNum,stampNum):
 
 def playerExit(code,num):
     global video_Num
-    video_Num =video_Num + 1
-    #print('exit',code)
+    video_Num = num
+
+
 
 def upload_Stone(img_Path):
     my_files = {'file': open(img_Path,'rb')}
@@ -231,72 +239,106 @@ def upload_Stone(img_Path):
 dpSubprocess.load_background_image(image = 'background.jpg')
 
 player = OMXPlayer(VIDEO_PATH+VIDEO_FILE_IDLE, args='--loop')
-player.exitEvent += lambda _, exit_code: playerExit(exit_code,video_Num)
+player.exitEvent += lambda _, exit_code: playerExit(exit_code,'SCANNING')
 sleep(3)
 player.play()
-
 while True:
-    if GPIO.input(gpioPin):
-        player.quit()
-        dpSubprocess.load_background_image(image = 'background.jpg')
-        stone_CAP_State = queue.Queue()
-        stone_CAP = thread_with_trace(target = catchStone,args=(stone_CAP_State,))
-        stone_CAP.start()
-        while True:
-            if stone_CAP_State.get() == 1:
-                player = OMXPlayer(VIDEO_PATH+VIDEO_FILE_SCANNING, args='--loop')
-                player.exitEvent += lambda _, exit_code: playerExit(exit_code,video_Num)
-                sleep(3)
-                player.play()
-                while True:
-                    if stone_CAP_State.get() == 2:
-                        player.quit()
-                        stone_CAP_State.join()
-                        stone_CAP.kill()
-                        stone_CAP.join()
-                        
-                        #upload stone image to pc
-                        upload_Stone(result_img+str(stoneNum)+'.png')
-                        
-                        #stone ML
-                        # stone_id = stoneMl(stoneNum)
+  try:
+      if GPIO.input(gpioPin):
+          player.quit()
+          dpSubprocess.load_background_image(image = 'background.jpg')
+          stone_CAP_State = queue.Queue()
+          stone_CAP = thread_with_trace(target = catchStone,args=(stone_CAP_State,))
+          stone_CAP.start()
+          while True:
+              if stone_CAP_State.get() == 1:
+                  player = OMXPlayer(VIDEO_PATH+VIDEO_FILE_SCANNING, args='--loop')
+                  player.exitEvent += lambda _, exit_code: playerExit(exit_code,'SCANNING_CMP')
+                  sleep(3)
+                  player.play()
+                  while True:
+                      if stone_CAP_State.get() == 2:
+                          player.quit()
+                          stone_CAP_State.join()
+                          stone_CAP.kill()
+                          stone_CAP.join()
+                          
+                          #stone ML
+                          stone_id = stoneMl(stoneNum)
+                          print(stone_id)
 
-                        player = OMXPlayer(VIDEO_PATH+VIDEO_FILE_SCANNING_CMP)
-                        player.exitEvent += lambda _, exit_code: playerExit(exit_code,video_Num)
-                        sleep(3)
-                        player.play()
-                        while video_Num != 4:
-                          # print("video3")
-                          pass
-                        player = OMXPlayer(VIDEO_PATH+VIDEO_FILE_SEE_STORY)
-                        player.exitEvent += lambda _, exit_code: playerExit(exit_code,video_Num)
-                        sleep(3)
-                        player.play()
-                        osc_sendMsg2Beach.send_message("/scanner/left/img/upload",1)
-                        while video_Num != 5:
-                          # print("video4")
-                          pass
-                        # make_Stamp(stoneNum,stampNum,stone_id)
-                        player = OMXPlayer(VIDEO_PATH+VIDEO_FILE_PRT_CMP)
-                        player.exitEvent += lambda _, exit_code: playerExit(exit_code,video_Num)
-                        sleep(3)
-                        player.play()
-                        while video_Num != 6:
-                          # print("video5")
-                          pass
-                        stone_id = 0
-                        video_Num = 1 
-                        stoneNum = stoneNum + 1 
-                        stampNum = stampNum + 1
-                        writes_StoneNum(stoneNum,stampNum,)
-                        player = OMXPlayer(VIDEO_PATH+VIDEO_FILE_IDLE, args='--loop')
-                        player.exitEvent += lambda _, exit_code: playerExit(exit_code,video_Num)
-                        sleep(3)
-                        player.play()
-                        break 
-                break           
-    if keyboard.is_pressed('q'):
-      player.quit()
-      sys.exit()
-      break
-    # print("level 1")
+                          #upload stone image to pc
+                          if stone_id != 15:
+                            upload_Stone(result_img+str(stoneNum).zfill(4)+'.png')
+
+                          if stone_id == 15:
+                              error_Count = error_Count + 1
+                              if error_Count != 2:
+                                player = OMXPlayer(VIDEO_PATH+VIDEO_FILE_SCAN_ERR)
+                                player.exitEvent += lambda _, exit_code: playerExit(exit_code,'FILE_IDLE')
+                                sleep(3)
+                                player.play()
+
+                                while video_Num != 'FILE_IDLE':
+                                  # print("video5")
+                                  pass
+                                player = OMXPlayer(VIDEO_PATH+VIDEO_FILE_IDLE, args='--loop')
+                                player.exitEvent += lambda _, exit_code: playerExit(exit_code,'SCANNING')
+                                sleep(3)
+                                player.play()
+                                break
+
+                              if error_Count == 2:
+                                # make_Stamp(stoneNum,stampNum,stone_id)
+                                error_Count = 0
+
+                          player = OMXPlayer(VIDEO_PATH+VIDEO_FILE_SCANNING_CMP)
+                          player.exitEvent += lambda _, exit_code: playerExit(exit_code,'FILE_IDLE')
+                          sleep(3)
+                          player.play()
+
+                          sleep(3)
+                          # send osc
+                          osc_sendMsg2Beach.send_message("/scanner/left/img/upload",1)
+                          osc_sendMsg2Beach.send_message("/scanner/txt/cat",stone_id)
+
+                          # sleep(5)
+                          # make_Stamp(stoneNum,stampNum,stone_id)
+
+                          while video_Num != 'FILE_IDLE':
+                            # print("video3")
+                            pass
+
+                          stone_id = 0
+                          video_Num = 1 
+                          stoneNum = stoneNum + 1 
+                          stampNum = stampNum + 1
+                          writes_StoneNum(stoneNum,stampNum)
+                          player = OMXPlayer(VIDEO_PATH+VIDEO_FILE_IDLE, args='--loop')
+                          player.exitEvent += lambda _, exit_code: playerExit(exit_code,video_Num)
+                          sleep(3)
+                          player.play()
+                          break 
+                  break           
+      if keyboard.is_pressed('q'):
+        player.quit()
+        sys.exit()
+        break
+
+  except Exception as e:
+    print("Program terminated: ",e)
+    logging.basicConfig(level=logging.DEBUG, filename='/home/pi/stoneScanner/log.log', filemode='a', format=LOG_FORMAT)
+    player.quit()
+    player = OMXPlayer(VIDEO_PATH+VIDEO_FILE_SCAN_ERR)
+    player.exitEvent += lambda _, exit_code: playerExit(exit_code,'FILE_IDLE')
+    sleep(3)
+    player.play()
+    while video_Num != 'FILE_IDLE':
+      # print("video5")
+      pass
+    player = OMXPlayer(VIDEO_PATH+VIDEO_FILE_IDLE, args='--loop')
+    player.exitEvent += lambda _, exit_code: playerExit(exit_code,'SCANNING')
+    sleep(3)
+    player.play()
+
+  # sys.exit()
