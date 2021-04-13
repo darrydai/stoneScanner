@@ -6,17 +6,19 @@ import configparser
 import skimage.exposure
 import queue
 import threading,trace,queue
+import random
 import keyboard
 import requests
+import subprocess,os,signal
 import logging
 from picamera import PiCamera
 from fractions import Fraction
-from pythonosc import udp_client
+from pythonosc import udp_client,osc_bundle_builder,osc_message_builder
 from omxplayer.player import OMXPlayer
 from stoneMl import stoneMl
 from make_Stamp import make_Stamp
 from time import sleep
-from dimensionplus import dpSubprocess
+# from dimensionplus import dpSubprocess
 
 #init config file
 config = configparser.ConfigParser()
@@ -40,10 +42,16 @@ VIDEO_FILE_SCAN_ERR = config['video']['VIDEO_FILE_SCAN_ERR']
 # VIDEO_FILE_PRT_CMP = config['video']['VIDEO_FILE_PRT_CMP']
 # VIDEO_FILE_FULL = config['video']['VIDEO_FILE_FULL']
 
+# init bacground
+black = 'sudo fbi -noverbose -d /dev/fb0 -T 1 /home/pi/stoneScanner/data/pic/black.jpg'
+white = 'sudo fbi -noverbose -d /dev/fb0 -T 1 /home/pi/stoneScanner/data/pic/white.jpg'
+
 # init osc
 host_ip = config['osc']['host_ip']
 host_port = int(config['osc']['host_port'])
 osc_sendMsg2Beach = udp_client.SimpleUDPClient(host_ip,host_port)
+bundle = osc_bundle_builder.OscBundleBuilder(osc_bundle_builder.IMMEDIATELY)
+msg = osc_message_builder.OscMessageBuilder(address="/scanner/left/txt/cat")
 
 # define GPIO Pin Number
 gpioPin = 5
@@ -163,8 +171,9 @@ def catchStone(workState):
 
     # threshold the image and extract contours 
     # can change cv2.threshold function thresh and max value
-    ret,thresh = cv2.threshold(img2gray,245.5,255,cv2.THRESH_BINARY_INV) 
-    im2,contours,hierarchy = cv2.findContours(thresh, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_NONE) 
+    ret,thresh = cv2.threshold(img2gray,218,255,cv2.THRESH_BINARY_INV) 
+    im2,contours,hierarchy = cv2.findContours(thresh, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_NONE)
+    cv2.imwrite('/home/pi/stoneScanner/data/pic/captrue/dbug/thresh.png',thresh) 
 
     # another get Contours option
     # blurred = cv2.GaussianBlur(img2gray, (11, 11), 0)
@@ -232,21 +241,24 @@ def playerExit(code,num):
 
 def upload_Stone(img_Path):
     my_files = {'file': open(img_Path,'rb')}
-    values = {'folder':'Photos/incoming/'}
+    values = {'folder':'Photos/incoming/left/'}
+    # values = {'folder':'Photos/incoming/right/'}
     r = requests.post(config['captrue']['http_Add'],files = my_files,data=values)
 
 #load white background
-dpSubprocess.load_background_image(image = 'background.jpg')
-
+# dpSubprocess.load_background_image(image = 'black.jpg')
+blackBG = subprocess.Popen(black, shell=True)
 player = OMXPlayer(VIDEO_PATH+VIDEO_FILE_IDLE, args='--loop')
 player.exitEvent += lambda _, exit_code: playerExit(exit_code,'SCANNING')
 sleep(3)
 player.play()
 while True:
   try:
-      if GPIO.input(gpioPin):
+      # if GPIO.input(gpioPin):
+      if keyboard.is_pressed('a'):
           player.quit()
-          dpSubprocess.load_background_image(image = 'background.jpg')
+          whiteBG = subprocess.Popen(white,shell=True,stdout=subprocess.PIPE,stderr=subprocess.PIPE)
+          whiteBG_pid=os.getpgid(whiteBG.pid)
           stone_CAP_State = queue.Queue()
           stone_CAP = thread_with_trace(target = catchStone,args=(stone_CAP_State,))
           stone_CAP.start()
@@ -276,34 +288,49 @@ while True:
                               if error_Count != 2:
                                 player = OMXPlayer(VIDEO_PATH+VIDEO_FILE_SCAN_ERR)
                                 player.exitEvent += lambda _, exit_code: playerExit(exit_code,'FILE_IDLE')
-                                sleep(3)
+                                sleep(1)
                                 player.play()
 
                                 while video_Num != 'FILE_IDLE':
                                   # print("video5")
                                   pass
+
                                 player = OMXPlayer(VIDEO_PATH+VIDEO_FILE_IDLE, args='--loop')
                                 player.exitEvent += lambda _, exit_code: playerExit(exit_code,'SCANNING')
-                                sleep(3)
+                                sleep(1)
                                 player.play()
                                 break
-
-                              if error_Count == 2:
-                                # make_Stamp(stoneNum,stampNum,stone_id)
-                                error_Count = 0
 
                           player = OMXPlayer(VIDEO_PATH+VIDEO_FILE_SCANNING_CMP)
                           player.exitEvent += lambda _, exit_code: playerExit(exit_code,'FILE_IDLE')
                           sleep(3)
                           player.play()
 
-                          sleep(3)
                           # send osc
-                          osc_sendMsg2Beach.send_message("/scanner/left/img/upload",1)
-                          osc_sendMsg2Beach.send_message("/scanner/txt/cat",stone_id)
+                          sleep(2)
+                          if stone_id != 15:
+                            osc_sendMsg2Beach.send_message("/scanner/left/img/upload",1)
+                            stampBgNum=random.randint(1, 3)
+                            osc_sendMsg2Beach.send_message("/scanner/left/txt/num",stampBgNum)
+                            print(stampBgNum)
+                            osc_sendMsg2Beach.send_message("/scanner/left/txt/cat",stone_id)
+                          
 
-                          # sleep(5)
-                          # make_Stamp(stoneNum,stampNum,stone_id)
+                          # print the stone
+                          if stone_id != 15:
+                            sleep(5)
+                            # make_Stamp(stoneNum,stampNum,stone_id,stampBgNum)
+
+                          if error_Count == 2:
+                            msg.add_arg(stone_id)
+                            bundle.add_content(msg.build())
+                            stampBgNum=random.randint(1,6)
+                            print(stampBgNum)
+                            osc_sendMsg2Beach.send_message("/scanner/left/txt/num",stampBgNum)
+                            osc_sendMsg2Beach.send_message("/scanner/left/txt/cat",stone_id)
+                            sleep(5)
+                            # make_Stamp(stoneNum,stampNum,15,stampBgNum)
+                            error_Count = 0
 
                           while video_Num != 'FILE_IDLE':
                             # print("video3")

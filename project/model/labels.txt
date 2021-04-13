@@ -1,0 +1,6 @@
+0 Little circle
+1 Greeny
+2 Ms Red
+3 Skinny 
+4 B&W
+5 Empty
