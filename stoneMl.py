@@ -116,7 +116,7 @@ def stoneMl(stoneNum):
 #       camera.stop_preview()
 
 def main():
-  stoneID=stoneMl(66)
+  stoneID=stoneMl(5)
   print(stoneID)
 if __name__ == '__main__':
   main()
